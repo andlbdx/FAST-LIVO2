@@ -199,9 +199,15 @@ void VIOManager::computeProjectionJacobian(V3D p, MD(2, 3) & J)
   J(1, 1) = fy * z_inv;
   J(1, 2) = -fy * y * z_inv_2;
 }
-
+/*
+ *  cv::Mat img：输入的图像，类型为OpenCV的Mat。
+ *   V2D pc：二维点坐标，表示图像中需要提取图像块的中心点。
+ *   float *patch_tmp：输出的图像块数据，存储提取的图像块。
+ *   int level：层级，用于确定图像的缩放比例。
+ */
 void VIOManager::getImagePatch(cv::Mat img, V2D pc, float *patch_tmp, int level)
 {
+  //  u_ref 和 v_ref 是输入点坐标 (pc[0], pc[1])，表示图像中需要提取图像块的中心点的浮点坐标。
   const float u_ref = pc[0];
   const float v_ref = pc[1];
   const int scale = (1 << level);
@@ -209,10 +215,15 @@ void VIOManager::getImagePatch(cv::Mat img, V2D pc, float *patch_tmp, int level)
   const int v_ref_i = floorf(pc[1] / scale) * scale;
   const float subpix_u_ref = (u_ref - u_ref_i) / scale;
   const float subpix_v_ref = (v_ref - v_ref_i) / scale;
+  // 左上角像素的权重。
   const float w_ref_tl = (1.0 - subpix_u_ref) * (1.0 - subpix_v_ref);
+  //右上角像素的权重。
   const float w_ref_tr = subpix_u_ref * (1.0 - subpix_v_ref);
+  //左下角像素的权重。
   const float w_ref_bl = (1.0 - subpix_u_ref) * subpix_v_ref;
+  //右下角像素的权重。
   const float w_ref_br = subpix_u_ref * subpix_v_ref;
+  // 提取图像块。
   for (int x = 0; x < patch_size; x++)
   {
     uint8_t *img_ptr = (uint8_t *)img.data + (v_ref_i - patch_size_half * scale + x * scale) * width + (u_ref_i - patch_size_half * scale);
@@ -349,6 +360,11 @@ double VIOManager::calculateNCC(float *ref_patch, float *cur_patch, int patch_si
   return numerator / sqrt(demoniator1 * demoniator2 + 1e-10);
 }
 
+/*
+ *     cv::Mat img：当前帧的图像。
+ *     vector<pointWithVar> &pg：包含点云数据的数组，每个点带有方差信息。
+ *     const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &plane_map：体素化的平面地图，用于射线追踪。
+ */
 void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &plane_map)
 {
   if (feat_map.size() <= 0) return;
@@ -383,12 +399,15 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
 
   // printf("pg size: %zu \n", pg.size());
 
+//    将世界坐标系中的激光雷达点pg[i].point_w栅格化到体素坐标系中。
+//    将体素位置存储到sub_feat_map中。
+//    将点投影到当前帧的相机坐标系，生成深度图。
   for (int i = 0; i < pg.size(); i++)
   {
     // double t0 = omp_get_wtime();
 
     V3D pt_w = pg[i].point_w;
-
+    // 将点的坐标转换为体素坐标
     for (int j = 0; j < 3; j++)
     {
       loc_xyz[j] = floor(pt_w[j] / voxel_size);
@@ -400,27 +419,30 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
     // double t1 = omp_get_wtime();
 
     auto iter = sub_feat_map.find(position);
+    // 如果该体素不存在，则用新点初始化该体素并将其索引到哈希表中。
     if (iter == sub_feat_map.end()) { sub_feat_map[position] = 0; }
     else { iter->second = 0; }
 
     // t_insert += omp_get_wtime()-t1;
     // double t2 = omp_get_wtime();
 
+    //将世界坐标系里的激光雷达点转为相机坐标系下的点。
     V3D pt_c(new_frame_->w2f(pt_w));
-
+    //pt_c[2]就是相机坐标系中的深度值
     if (pt_c[2] > 0)
     {
       V2D px;
       // px[0] = fx * pt_c[0]/pt_c[2] + cx;
       // px[1] = fy * pt_c[1]/pt_c[2]+ cy;
       px = new_frame_->cam_->world2cam(pt_c);
-
+      //检查投影后的二维坐标 px 是否在相机的有效视野范围内（使用 border 设置边界）。
       if (new_frame_->cam_->isInFrame(px.cast<int>(), border))
       {
         // cv::circle(img_cp, cv::Point2f(px[0], px[1]), 3, cv::Scalar(0, 0, 255), -1, 8);
         float depth = pt_c[2];
         int col = int(px[0]);
         int row = int(px[1]);
+        // 设置深度图的像素值
         it[width * row + col] = depth;
       }
     }
@@ -436,18 +458,20 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
 
   // double t1 = omp_get_wtime();
   vector<VOXEL_LOCATION> DeleteKeyList;
-
+  //这段代码主要用于将特征点从稀疏地图中检索出来，并更新视野中的特征点信息。
   for (auto &iter : sub_feat_map)
   {
     VOXEL_LOCATION position = iter.first;
 
     // double t4 = omp_get_wtime();
+    // 找到体素地图中对应的特征点
     auto corre_voxel = feat_map.find(position);
     // double t5 = omp_get_wtime();
-
+    // 如果总体素地图中存在对应的特征点，则进行更新操作。
     if (corre_voxel != feat_map.end())
     {
       bool voxel_in_fov = false;
+      // 当前体素中的所有激光雷达点
       std::vector<VisualPoint *> &voxel_points = corre_voxel->second->voxel_points;
       int voxel_num = voxel_points.size();
 
@@ -456,13 +480,13 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
         VisualPoint *pt = voxel_points[i];
         if (pt == nullptr) continue;
         if (pt->obs_.size() == 0) continue;
-
+        // 将点的坐标从世界坐标系转换为当前坐标系下。
         V3D norm_vec(new_frame_->T_f_w_.rotation_matrix() * pt->normal_);
         V3D dir(new_frame_->T_f_w_ * pt->pos_);
         if (dir[2] < 0) continue;
         // dir.normalize();
         // if (dir.dot(norm_vec) <= 0.17) continue; // 0.34 70 degree  0.17 80 degree 0.08 85 degree
-
+        // 将点的坐标系转到当前相机坐标系下。
         V2D pc(new_frame_->w2c(pt->pos_));
         if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
         {
@@ -470,8 +494,10 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
           voxel_in_fov = true;
           int index = static_cast<int>(pc[1] / grid_size) * grid_n_width + static_cast<int>(pc[0] / grid_size);
           grid_num[index] = TYPE_MAP;
+          // 计算激光雷达点和相机的距离
           Vector3d obs_vec(new_frame_->pos() - pt->pos_);
           float cur_dist = obs_vec.norm();
+          //并为每个体素的局部平面保留深度最小的候选点。
           if (cur_dist <= map_dist[index])
           {
             map_dist[index] = cur_dist;
@@ -479,6 +505,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
           }
         }
       }
+      // 如果体素中的所有激光雷达点都不在视野中，则删除该体素。
       if (!voxel_in_fov) { DeleteKeyList.push_back(position); }
     }
   }
@@ -617,6 +644,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
 
       V3D pt_cam(new_frame_->w2f(pt->pos_));
       bool depth_continous = false;
+      // 遍历当前点的patch内，如果存在深度和当前点相差0.5的点，则认为深度不连续，跳过当前点
       for (int u = -patch_size_half; u <= patch_size_half; u++)
       {
         for (int v = -patch_size_half; v <= patch_size_half; v++)
