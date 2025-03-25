@@ -15,7 +15,7 @@ which is included as part of this source code package.
 
 #include "visual_point.h"
 
-// A salient image region that is tracked across frames.
+// A salient image region that is tracked across frames.   显著图像区域跨帧跟踪。
 struct Feature
 {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -34,7 +34,7 @@ struct Feature
   VisualPoint *point_;   //!< Pointer to 3D point which corresponds to the patch feature.
   Vector2d grad_;        //!< Dominant gradient direction for edglets, normalized.
   SE3 T_f_w_;            //!< Pose of the frame where the patch feature was extracted.
-  float *patch_;         //!< Pointer to the image patch data.
+  float *patch_;         //!< Pointer to the image patch data.         指向图像块数据的指针。
   float score_;          //!< Score of the patch feature.
   float mean_;           //!< Mean intensity of the image patch feature, used for normalization.
   double inv_expo_time_; //!< Inverse exposure time of the image where the patch feature was extracted.

@@ -260,6 +260,16 @@ void VIOManager::insertPointIntoVoxelMap(VisualPoint *pt_new)
   }
 }
 
+/**
+ *  计算当前帧到参考帧的仿射变换矩阵A_cur_ref
+ *  cam：相机模型。
+ *  px_ref：参考帧中特征点的像素坐标。
+ *  xyz_ref：参考帧中特征点的三维位置。
+ *  normal_ref：参考帧中特征点的法线方向。
+ *  T_cur_ref：当前帧到参考帧的变换矩阵（SE3类型）。
+ *  level_ref：参考点所在的金字塔层级。
+ *  A_cur_ref：输出的仿射变换矩阵。
+ **/
 void VIOManager::getWarpMatrixAffineHomography(const vk::AbstractCamera &cam, const V2D &px_ref, const V3D &xyz_ref, const V3D &normal_ref,
                                                   const SE3 &T_cur_ref, const int level_ref, Matrix2d &A_cur_ref)
 {
@@ -680,6 +690,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
 
       if (normal_en)
       {
+        // 存储最小的光度误差
         float phtometric_errors_min = std::numeric_limits<float>::max();
 
         if (pt->obs_.size() == 1)
@@ -688,10 +699,12 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
           pt->ref_patch = ref_ftr;
           pt->has_ref_patch_ = true;
         }
+        //如果特征点pt有多个观测且尚未设置参考图像块，则计算每个图像块和其他所有图像块的光度误差，选光度误差最小的那个图像块
         else if (!pt->has_ref_patch_)
         {
           for (auto it = pt->obs_.begin(), ite = pt->obs_.end(); it != ite; ++it)
           {
+            //
             Feature *ref_patch_temp = *it;
             float *patch_temp = ref_patch_temp->patch_;
             float phtometric_errors = 0.0;
@@ -1813,6 +1826,7 @@ void VIOManager::dumpDataForColmap()
 
 void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unordered_map<VOXEL_LOCATION, VoxelOctoTree *> &feat_map, double img_time)
 {
+  // 检查图像尺寸
   if (width != img.cols || height != img.rows)
   {
     if (img.empty()) printf("[ VIO ] Empty Image!\n");
@@ -1831,24 +1845,29 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
 
   double t1 = omp_get_wtime();
 
+  //从视觉稀疏地图中检索特征点
   retrieveFromVisualSparseMap(img, pg, feat_map);
 
   double t2 = omp_get_wtime();
 
+  //计算雅可比矩阵并更新扩展卡尔曼滤波器
   computeJacobianAndUpdateEKF(img);
 
   double t3 = omp_get_wtime();
 
+  //根据当前帧的特征点生成视觉地图点
   generateVisualMapPoints(img, pg);
 
   double t4 = omp_get_wtime();
-  
+
+  //绘制跟踪的特征点
   plotTrackedPoints();
 
   if (plot_flag) projectPatchFromRefToCur(feat_map);
 
   double t5 = omp_get_wtime();
 
+  //更新参考图像块
   updateVisualMapPoints(img);
 
   double t6 = omp_get_wtime();
