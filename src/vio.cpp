@@ -824,25 +824,32 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
 
 void VIOManager::computeJacobianAndUpdateEKF(cv::Mat img)
 {
+  // 如果没有特征点，则直接返回，无需计算
   if (total_points == 0) return;
   
   compute_jacobian_time = update_ekf_time = 0.0;
 
   for (int level = patch_pyrimid_level - 1; level >= 0; level--)
   {
+    // 根据是否启用逆组合方法选择不同的状态更新方式
     if (inverse_composition_en)
     {
       has_ref_patch_cache = false;
+      // 使用逆组合方法更新状态
       updateStateInverse(img, level);
     }
     else
+    // 使用正组合方法更新状态
       updateState(img, level);
   }
-  state->cov -= G * state->cov;
+   // 更新状态协方差矩阵，应用增益矩阵G
+   state->cov -= G * state->cov;
+
+  // 更新当前帧的状态
   updateFrameState(*state);
 }
 
-void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
+void VIOMacnager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
 {
   if (pg.size() <= 10) return;
 
